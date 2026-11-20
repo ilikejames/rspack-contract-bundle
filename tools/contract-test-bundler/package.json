@@ -7,7 +7,7 @@
     "build": "node rsbuild/build.mjs",
     "build:sea": "bash sea/build.sh",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "rstest run"
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning rstest run"
   },
   "dependencies": {
     "@pack-exp/contract": "*",

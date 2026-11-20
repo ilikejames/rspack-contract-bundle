@@ -26,6 +26,15 @@
  * into `process.env` that confuses a later `execFileSync('npx', ['rstest',
  * ...])` child into a different (wrong) result for the exact same
  * command. Keeping the phases separated sidesteps it.
+ *
+ * `realRstestCounts` forces `--reporter json`, rather than scraping
+ * whichever human-readable format rstest's default reporter happens to
+ * pick. That default is NOT stable across invocation contexts — it
+ * reportedly always failed from one real terminal session (TTY) while
+ * passing every time from this non-interactive one, strongly suggesting
+ * TTY/env-based reporter auto-selection changes the output shape
+ * (markdown-fenced JSON in one case, something else in another). The
+ * `json` reporter's output is explicit and stable regardless.
  */
 import { afterAll, beforeAll, describe, expect, test } from '@rstest/core';
 import { execFileSync } from 'node:child_process';
@@ -55,14 +64,19 @@ function realRstestCounts(testFile: string): {
   todoTests: number;
   tests: number;
 } {
-  const output = execFileSync('npx', ['rstest', 'run', testFile], {
+  const output = execFileSync('npx', ['rstest', 'run', testFile, '--reporter', 'json'], {
     cwd: fixturesDir,
     encoding: 'utf8',
   });
-  const match = output.match(/```json\s*\n([\s\S]*?)\n```/);
-  const jsonBlock = match?.[1];
-  if (!jsonBlock) throw new Error('could not find a JSON summary block in rstest output');
-  return JSON.parse(jsonBlock).counts;
+  // Even with --reporter json, rstest can still print a leading startup
+  // banner ("  Rstest vX.Y.Z") to stdout ahead of the actual JSON — seen
+  // in an interactive terminal, not reproduced in a non-interactive one,
+  // so it's some env/TTY-dependent behavior we don't fully control.
+  // Robust fix: parse from wherever the JSON object actually starts,
+  // rather than assuming `output` is pure JSON from position 0.
+  const jsonStart = output.indexOf('{');
+  if (jsonStart === -1) throw new Error(`no JSON object found in rstest output:\n${output}`);
+  return JSON.parse(output.slice(jsonStart)).summary;
 }
 
 /** Builds `entry` via rsbuild (our harness aliased in) and runs the result. */
@@ -118,6 +132,18 @@ describe('unsupported surface: valid usage, fails our build loudly', () => {
   test('bundling it through rsbuild fails at build time, naming the missing export', async () => {
     const EXPECTED_MARKERS = [`export 'rs'`, `was not found in '@rstest/core'`];
 
+    // This build is SUPPOSED to fail — that's the assertion. rsbuild
+    // prints the (expected) error detail via console.log/console.error,
+    // which rstest then dutifully echoes back grouped under this test in
+    // its report, making a passing test look alarming. The actual error
+    // text is captured separately via buildErrors (see
+    // buildContractBundle.mjs's onAfterBuild hook), so console output
+    // here is pure noise — silenced for the duration of this one call.
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = () => {};
+    console.error = () => {};
+
     let threw = false;
     let buildErrors: string[] = [];
     try {
@@ -131,6 +157,9 @@ describe('unsupported surface: valid usage, fails our build loudly', () => {
     } catch (error) {
       threw = true;
       buildErrors = (error as { buildErrors?: string[] }).buildErrors ?? [];
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
     }
 
     expect(threw).toBe(true);
