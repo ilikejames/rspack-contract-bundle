@@ -1,0 +1,25 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "remoteCache": {
+    "enabled": false
+  },
+  "tasks": {
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["src/**", "tests/**", "tsconfig.json", "../../tsconfig.base.json"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^typecheck"],
+      "inputs": ["src/**", "tests/**", "rstest.config.ts", "tsconfig.json"],
+      "outputs": [],
+      "cache": false
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tests/**", "rsbuild.config.ts", "tsconfig.json"],
+      "outputs": ["dist/**"]
+    }
+  }
+}

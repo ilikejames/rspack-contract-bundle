@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": [
+    "shared/src",
+    "tests",
+    "fixtures/boundary/entry.supported.ts",
+    "fixtures/boundary/entry.unsupported.ts",
+    "fixtures/boundary/tests",
+    "fixtures/type-boundary"
+  ],
+  "exclude": ["fixtures/type-boundary/wrong.types.test.ts"]
+}

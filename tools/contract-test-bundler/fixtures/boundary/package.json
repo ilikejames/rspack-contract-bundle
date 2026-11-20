@@ -1,0 +1,6 @@
+{
+  "name": "@pack-exp/contract-test-bundler-verify-boundary",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

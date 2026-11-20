@@ -1,0 +1,25 @@
+{
+  "name": "@pack-exp/contract-test-bundler",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node rsbuild/build.mjs",
+    "build:sea": "bash sea/build.sh",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "rstest run"
+  },
+  "dependencies": {
+    "@pack-exp/contract": "*",
+    "@vitest/expect": "^5.1.1",
+    "chai": "^6.3.0"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^2.3.3",
+    "@rspack/core": "^2.3.3",
+    "@rstest/core": "^0.12.6",
+    "expect-type": "^1.4.0",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "^5.9.3"
+  }
+}
