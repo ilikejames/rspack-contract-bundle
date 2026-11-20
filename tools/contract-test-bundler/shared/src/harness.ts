@@ -239,13 +239,29 @@ interface Tally {
 }
 
 /**
+ * One test's outcome, serializable (error is a message string, not an
+ * Error object) so it can cross a postMessage/JSON boundary cleanly — a
+ * browser UI renders a list of these, not console text.
+ */
+export interface CaseResult {
+  suite: string;
+  name: string;
+  status: CaseStatus;
+  durationMs: number;
+  error?: string;
+}
+
+/**
  * Prints one result line the moment a test settles, rather than buffering
  * into an array and printing it all after the whole run finishes — so a
  * slow test (test3's genuine ~2s timeout, say) shows up as a pause before
- * ITS line, not as a pause before every line.
+ * ITS line, not as a pause before every line. Also pushes a `CaseResult`
+ * into `results`, for callers (a browser UI) that want structured data
+ * instead of/as well as the console output.
  */
 function report(
   tally: Tally,
+  results: CaseResult[],
   suite: string,
   name: string,
   status: CaseStatus,
@@ -264,6 +280,7 @@ function report(
     tally.passed += 1;
   }
   tally.total += 1;
+  results.push({ suite, name, status, durationMs, error: error?.message });
 }
 
 async function runSuite(
@@ -272,6 +289,7 @@ async function runSuite(
   inheritedBeforeEach: HookFn[],
   inheritedAfterEach: HookFn[],
   tally: Tally,
+  results: CaseResult[],
 ): Promise<void> {
   const path = node.name === '(root)' ? suitePath : [...suitePath, node.name];
   const suiteLabel = path.join(' > ') || '(root)';
@@ -289,6 +307,7 @@ async function runSuite(
     } catch (error) {
       report(
         tally,
+        results,
         suiteLabel,
         '(beforeAll hook)',
         'fail',
@@ -311,6 +330,7 @@ async function runSuite(
           [...inheritedBeforeEach, ...node.beforeEachHooks],
           [...node.afterEachHooks, ...inheritedAfterEach],
           tally,
+          results,
         );
         continue;
       }
@@ -318,11 +338,11 @@ async function runSuite(
       const { test: testCase } = item;
 
       if (testCase.mode === 'todo') {
-        report(tally, suiteLabel, testCase.name, 'todo', 0);
+        report(tally, results, suiteLabel, testCase.name, 'todo', 0);
         continue;
       }
       if (testCase.mode === 'skip') {
-        report(tally, suiteLabel, testCase.name, 'skip', 0);
+        report(tally, results, suiteLabel, testCase.name, 'skip', 0);
         continue;
       }
 
@@ -336,10 +356,11 @@ async function runSuite(
           testCase.timeoutMs ?? DEFAULT_TEST_TIMEOUT_MS,
           `test "${testCase.name}"`,
         );
-        report(tally, suiteLabel, testCase.name, 'pass', Date.now() - startedAt);
+        report(tally, results, suiteLabel, testCase.name, 'pass', Date.now() - startedAt);
       } catch (error) {
         report(
           tally,
+          results,
           suiteLabel,
           testCase.name,
           'fail',
@@ -364,6 +385,7 @@ async function runSuite(
       } catch (error) {
         report(
           tally,
+          results,
           suiteLabel,
           '(afterAll hook)',
           'fail',
@@ -376,16 +398,28 @@ async function runSuite(
 }
 
 /**
- * Runs every registered test (respecting suite nesting and hooks), printing
- * each result line live as that test settles (see `report` above), then a
- * final summary. Returns a process exit code (0 = all passed; skipped/todo
+ * Runs every registered test (respecting suite nesting and hooks),
+ * printing each result line live as that test settles (see `report`
+ * above). Returns both the tally and the full list of `CaseResult`s —
+ * re-runnable: nothing here mutates the suite tree itself, so calling
+ * this again (a browser "Run" button clicked more than once) re-executes
+ * the same registered tests cleanly.
+ */
+export async function runAndCollect(): Promise<{ tally: Tally; results: CaseResult[] }> {
+  const tally: Tally = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
+  const results: CaseResult[] = [];
+  await runSuite(root, [], [], [], tally, results);
+  return { tally, results };
+}
+
+/**
+ * CLI entry point: runs everything, prints the blank-line-wrapped summary
+ * line, and returns a process exit code (0 = all passed; skipped/todo
  * tests don't count as failures).
  */
 export async function run(): Promise<number> {
-  const tally: Tally = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
-
   console.log('');
-  await runSuite(root, [], [], [], tally);
+  const { tally } = await runAndCollect();
   console.log('');
   console.log(
     `${tally.passed} passed, ${tally.failed} failed, ${tally.skipped} skipped, ${tally.todo} todo, ${tally.total} total`,

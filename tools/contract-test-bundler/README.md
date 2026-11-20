@@ -215,7 +215,7 @@ What you'll need to touch, and why each is what it is:
   this scope. Ordinary consequence of renaming packages, not a design
   flaw — grep for `@pack-exp` and update to your own scope.
 - **`tools/echo-server`'s port/host and `packages/contract`'s
-  `DEFAULT_ECHO_URL`** — already environment-overridable
+  initial echo URL** — already environment-overridable
   (`ECHO_URL`/`ECHO_PORT`/`ECHO_HOST`), just has a hardcoded *default*
   pointing at `127.0.0.1:8787`. Nothing to change unless you want a
   different default.

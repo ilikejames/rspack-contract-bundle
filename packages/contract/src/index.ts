@@ -1,6 +1,24 @@
 import { echo } from '@pack-exp/network';
 
-export const DEFAULT_ECHO_URL = process.env.ECHO_URL ?? 'ws://127.0.0.1:8787';
+const INITIAL_ECHO_URL =
+  (typeof process !== 'undefined' ? process.env?.ECHO_URL : undefined) ?? 'ws://127.0.0.1:8787';
+
+// Mutable, not frozen at module-load: a long-lived caller (a browser page
+// with a URL textbox, say) can change the target between runs without
+// reloading the module. `typeof process` is guarded because this file
+// gets bundled for the browser too (see tools/contract-test-bundler's
+// browser entry), where there is no `process` global at all.
+let echoUrl = INITIAL_ECHO_URL;
+
+/** The URL `reportEcho()` targets when no url is given explicitly. */
+export function getEchoUrl(): string {
+  return echoUrl;
+}
+
+/** Overrides the target URL for subsequent reportEcho()/echo() calls. */
+export function setEchoUrl(url: string): void {
+  echoUrl = url;
+}
 
 export interface EchoReport {
   url: string;
@@ -22,7 +40,7 @@ export interface EchoReport {
  */
 export async function reportEcho(
   payload: string,
-  url: string = DEFAULT_ECHO_URL,
+  url: string = echoUrl,
 ): Promise<EchoReport> {
   try {
     const result = await echo(url, payload);

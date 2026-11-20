@@ -1,6 +1,6 @@
 import { describe, expect, test } from '@rstest/core';
 import { echo } from '@pack-exp/network';
-import { DEFAULT_ECHO_URL, reportEcho } from '../src/index.js';
+import { getEchoUrl, reportEcho } from '../src/index.js';
 
 /**
  * A genuine, currently-failing contract test — not a contrived wrong
@@ -34,7 +34,7 @@ describe('test4: echo contract: ping/pong heartbeat (not implemented yet)', () =
   test(
     'server responds to a ping with a pong',
     async ({ signal }) => {
-      const result = await echo(DEFAULT_ECHO_URL, JSON.stringify({ dest: 'ping' }), {
+      const result = await echo(getEchoUrl(), JSON.stringify({ dest: 'ping' }), {
         timeoutMs: 60_000,
         signal,
       });

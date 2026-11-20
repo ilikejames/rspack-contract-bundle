@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./browser": "./shared/src/entry.browser.ts"
+  },
   "scripts": {
     "build": "node rsbuild/build.mjs",
     "build:sea": "bash sea/build.sh",
