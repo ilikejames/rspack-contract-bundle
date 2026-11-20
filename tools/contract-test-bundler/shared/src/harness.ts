@@ -252,16 +252,34 @@ export interface CaseResult {
 }
 
 /**
+ * Everything one run threads through the suite tree. Bundled into one
+ * object (rather than separate positional params) so adding another
+ * cross-cutting concern later — this is already its second one, after
+ * `results` — doesn't mean touching every call site's signature again.
+ */
+interface RunContext {
+  tally: Tally;
+  results: CaseResult[];
+  /**
+   * Fired the moment each test settles, with the SAME `CaseResult` that
+   * also gets printed and pushed into `results` — a consumer that wants
+   * to render progressively (a browser UI, say) as each test finishes
+   * rather than only once the whole run is done, uses this instead of
+   * waiting on the final `results` array.
+   */
+  onResult?: (result: CaseResult) => void;
+}
+
+/**
  * Prints one result line the moment a test settles, rather than buffering
  * into an array and printing it all after the whole run finishes — so a
  * slow test (test3's genuine ~2s timeout, say) shows up as a pause before
- * ITS line, not as a pause before every line. Also pushes a `CaseResult`
- * into `results`, for callers (a browser UI) that want structured data
- * instead of/as well as the console output.
+ * ITS line, not as a pause before every line. Also pushes the
+ * `CaseResult` into `ctx.results` and fires `ctx.onResult`, for callers
+ * that want structured data instead of/as well as the console output.
  */
 function report(
-  tally: Tally,
-  results: CaseResult[],
+  ctx: RunContext,
   suite: string,
   name: string,
   status: CaseStatus,
@@ -271,16 +289,18 @@ function report(
   console.log(`  ${statusMarks[status]} ${suite} > ${name} (${durationMs}ms)`);
   if (status === 'fail') {
     console.log(`      ${error?.message}`);
-    tally.failed += 1;
+    ctx.tally.failed += 1;
   } else if (status === 'skip') {
-    tally.skipped += 1;
+    ctx.tally.skipped += 1;
   } else if (status === 'todo') {
-    tally.todo += 1;
+    ctx.tally.todo += 1;
   } else {
-    tally.passed += 1;
+    ctx.tally.passed += 1;
   }
-  tally.total += 1;
-  results.push({ suite, name, status, durationMs, error: error?.message });
+  ctx.tally.total += 1;
+  const result: CaseResult = { suite, name, status, durationMs, error: error?.message };
+  ctx.results.push(result);
+  ctx.onResult?.(result);
 }
 
 async function runSuite(
@@ -288,8 +308,7 @@ async function runSuite(
   suitePath: string[],
   inheritedBeforeEach: HookFn[],
   inheritedAfterEach: HookFn[],
-  tally: Tally,
-  results: CaseResult[],
+  ctx: RunContext,
 ): Promise<void> {
   const path = node.name === '(root)' ? suitePath : [...suitePath, node.name];
   const suiteLabel = path.join(' > ') || '(root)';
@@ -306,8 +325,7 @@ async function runSuite(
       await withTimeout(hook, DEFAULT_HOOK_TIMEOUT_MS, 'beforeAll hook');
     } catch (error) {
       report(
-        tally,
-        results,
+        ctx,
         suiteLabel,
         '(beforeAll hook)',
         'fail',
@@ -329,8 +347,7 @@ async function runSuite(
           path,
           [...inheritedBeforeEach, ...node.beforeEachHooks],
           [...node.afterEachHooks, ...inheritedAfterEach],
-          tally,
-          results,
+          ctx,
         );
         continue;
       }
@@ -338,11 +355,11 @@ async function runSuite(
       const { test: testCase } = item;
 
       if (testCase.mode === 'todo') {
-        report(tally, results, suiteLabel, testCase.name, 'todo', 0);
+        report(ctx, suiteLabel, testCase.name, 'todo', 0);
         continue;
       }
       if (testCase.mode === 'skip') {
-        report(tally, results, suiteLabel, testCase.name, 'skip', 0);
+        report(ctx, suiteLabel, testCase.name, 'skip', 0);
         continue;
       }
 
@@ -356,11 +373,10 @@ async function runSuite(
           testCase.timeoutMs ?? DEFAULT_TEST_TIMEOUT_MS,
           `test "${testCase.name}"`,
         );
-        report(tally, results, suiteLabel, testCase.name, 'pass', Date.now() - startedAt);
+        report(ctx, suiteLabel, testCase.name, 'pass', Date.now() - startedAt);
       } catch (error) {
         report(
-          tally,
-          results,
+          ctx,
           suiteLabel,
           testCase.name,
           'fail',
@@ -384,8 +400,7 @@ async function runSuite(
         await withTimeout(hook, DEFAULT_HOOK_TIMEOUT_MS, 'afterAll hook');
       } catch (error) {
         report(
-          tally,
-          results,
+          ctx,
           suiteLabel,
           '(afterAll hook)',
           'fail',
@@ -404,11 +419,18 @@ async function runSuite(
  * re-runnable: nothing here mutates the suite tree itself, so calling
  * this again (a browser "Run" button clicked more than once) re-executes
  * the same registered tests cleanly.
+ *
+ * `onResult`, if given, fires on that same per-test cadence — for a
+ * caller (a browser UI) that wants to render progressively as each test
+ * finishes, rather than only once every test is done and this function
+ * finally resolves.
  */
-export async function runAndCollect(): Promise<{ tally: Tally; results: CaseResult[] }> {
+export async function runAndCollect(
+  onResult?: (result: CaseResult) => void,
+): Promise<{ tally: Tally; results: CaseResult[] }> {
   const tally: Tally = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
   const results: CaseResult[] = [];
-  await runSuite(root, [], [], [], tally, results);
+  await runSuite(root, [], [], [], { tally, results, onResult });
   return { tally, results };
 }
 

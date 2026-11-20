@@ -44,9 +44,16 @@ export interface RunContractTestsResult {
  * (e.g. a "Run" button clicked repeatedly with a different URL each
  * time): registration happened once at module load; this only re-walks
  * the already-built suite tree.
+ *
+ * `onResult`, if given, fires the moment each individual test settles —
+ * for a UI that wants to render progressively as results come in, rather
+ * than only once every test is done and this whole function resolves.
  */
-export async function runContractTests(url?: string): Promise<RunContractTestsResult> {
+export async function runContractTests(
+  url?: string,
+  onResult?: (result: CaseResult) => void,
+): Promise<RunContractTestsResult> {
   if (url) setEchoUrl(url);
-  const { tally, results } = await runAndCollect();
+  const { tally, results } = await runAndCollect(onResult);
   return { ...tally, results };
 }

@@ -28,8 +28,12 @@ export function App() {
     setStatus('running');
     setResults([]);
     setSummary(null);
-    const outcome = await runContractTests(url);
-    setResults(outcome.results);
+    // Appends as each test settles, not once the whole run is done — a
+    // ~2s test (test3's genuine timeout) shows up as a pause before ITS
+    // row, not a pause before every row appears at once.
+    const outcome = await runContractTests(url, (result) => {
+      setResults((prev) => [...prev, result]);
+    });
     setSummary({
       passed: outcome.passed,
       failed: outcome.failed,
