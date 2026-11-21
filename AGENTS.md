@@ -173,20 +173,32 @@ specific to this bundler.
 
 ### 4. Check what your real tests actually use
 
-The harness supports: `describe` (including nested), `test`,
-`test.skip`, `test.todo`, `test.each` (array-of-tuples form),
-`beforeAll`/`afterAll`/`beforeEach`/`afterEach`, and a per-test timeout
-(`test(name, fn, timeoutMs)`). `expect` is the real matcher library, so
-every matcher your real framework supports also works here.
+The harness supports: `describe`/`it`/`test` (`it` is a plain alias for
+`test`, same as jest/mocha/vitest — if your real tests use `it`
+exclusively and never write `test`, that's fine, it's the same object),
+including nested `describe`; `test.skip`/`.todo`/`.each`;
+`describe.skip`/`.only`/`.each` (array-of-tuples form); `test.only`;
+`beforeAll`/`afterAll`/`beforeEach`/`afterEach`; `assert` (chai's,
+alongside `expect`); and a per-test timeout (`test(name, fn, timeoutMs)`).
+`expect` is the real matcher library, so every matcher your real
+framework supports also works here. `.skip` matches real semantics
+exactly (a skipped suite runs **none** of its hooks — verified against
+the real runner, not assumed). `.only` is scoped **per file**, matching
+real rstest — confirmed empirically that it doesn't leak across files
+bundled together, found the hard way that a naive single global flag
+would have been wrong here.
 
-It does **not** support mocking (`vi.fn`/`rs.fn`, spies, fake timers) or
-module mocking (`vi.mock`/`rs.mock`) — and module mocking specifically
-never will, for an architectural reason explained in the README (it
-depends on a compiler transform this approach doesn't have). If your real
-contract tests use any of that, you'll find out immediately: the bundle
-build **fails loudly**, naming the exact missing export, rather than
-failing silently at runtime. That's by design — a louder failure here is
-the point, not a bug to report.
+It does **not** support mocking (`vi.fn`/`rs.fn`, spies, fake timers),
+module mocking (`vi.mock`/`rs.mock` — never will, architectural reason in
+the README), or the rarer modifiers (`.for`, `.concurrent`, `.sequential`,
+`.runIf`, `.skipIf`, test's `.fails`, describe's `.todo`). If your real
+contract tests use any of the first group, you'll find out immediately:
+the bundle build **fails loudly**, naming the exact missing export,
+rather than failing silently at runtime. The second group (missing
+*properties* on an export that does exist, like `describe.each` before it
+was implemented) can't be caught that way — those throw a clear, named
+error instead, but only once actually called, not at build time. Either
+way: loud and named, by design, never silent.
 
 If your contract tests are simple (the kind that mostly assert on real
 network/IO responses, which contract tests usually are), this is often a

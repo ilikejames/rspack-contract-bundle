@@ -38,9 +38,8 @@ let realCounts: Counts;
 
 // Real rstest ground truth gathered FIRST, before anything touches
 // rsbuild/rspack in this process — see boundary.test.ts's comment for
-// why that ordering matters (an rsbuild build earlier in the same
-// process was found to leak something into process.env that confuses a
-// later execFileSync('npx', ['rstest', ...]) child).
+// the (now root-caused and fixed in buildContractBundle.mjs itself)
+// reason this used to matter: a leaked NODE_ENV=production.
 beforeAll(() => {
   const output = execFileSync(
     'npx',

@@ -200,11 +200,17 @@ legitimate rstest usage (verified against the real runner first, in
   streams from inside a test.
 
 All real-rstest ground truth (both fixture files) is gathered in this
-file's `beforeAll`, before anything touches rsbuild/rspack — running an
-rsbuild build earlier in the same process was found to leak something
-into `process.env` that confuses a later `execFileSync('npx', ['rstest',
-...])` child into a wrong result for the exact same command. Keeping the
-phases separated sidesteps it.
+file's `beforeAll`, before anything touches rsbuild/rspack. Root-caused:
+`rsbuild.build({ mode: 'production' })` sets `process.env.NODE_ENV =
+'production'` as a side effect, which a later `execFileSync('npx',
+['rstest', ...])` in the same process inherits — and under
+`NODE_ENV=production`, rstest's own `rs.mock()` hoisting transform
+silently breaks (confirmed by forcing `NODE_ENV=production` directly
+against the real CLI, no rsbuild involved at all). Fixed at the source in
+`buildContractBundle.mjs`, which now saves and restores `NODE_ENV` around
+its own build call — this ordering is no longer load-bearing, kept as the
+cleaner shape anyway (ground truth first, then the thing being verified
+against it).
 
 `fixtures/boundary/` has its own `package.json` + `rstest.config.ts`:
 without a local `package.json`, rstest misattributes the project root to

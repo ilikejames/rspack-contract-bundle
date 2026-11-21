@@ -21,11 +21,18 @@
  *    just unimplemented. See the package README.
  *
  * All real-rstest ground truth is gathered in `beforeAll`, before
- * anything in this file touches rsbuild/rspack — found empirically that
- * running an rsbuild build earlier in the same process leaks something
- * into `process.env` that confuses a later `execFileSync('npx', ['rstest',
- * ...])` child into a different (wrong) result for the exact same
- * command. Keeping the phases separated sidesteps it.
+ * anything in this file touches rsbuild/rspack. Root cause, since fixed
+ * in `buildContractBundle.mjs` itself (not just worked around by this
+ * ordering): `rsbuild.build({ mode: 'production' })` sets
+ * `process.env.NODE_ENV = 'production'` as a side effect, which a later
+ * `execFileSync('npx', ['rstest', ...])` in the same process inherits —
+ * and under `NODE_ENV=production`, rstest's own mock-hoisting transform
+ * (`rs.mock()`) silently breaks (confirmed by forcing NODE_ENV=production
+ * directly against the real CLI, no rsbuild involved: the exact same
+ * test that otherwise passes starts failing). `buildContractBundle` now
+ * saves and restores `NODE_ENV` around its own build call, so this
+ * ordering is no longer load-bearing — kept anyway as the cleaner shape
+ * (ground truth first, then the thing being verified against it).
  *
  * `realRstestCounts` forces `--reporter json`, rather than scraping
  * whichever human-readable format rstest's default reporter happens to

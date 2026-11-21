@@ -322,6 +322,19 @@ export const test = Object.assign(
   },
 );
 
+// `it` is a plain alias for `test` in real rstest (same as jest/mocha/
+// vitest) — plenty of real codebases use `it` exclusively and never
+// write `test` at all, so this is a likely one to actually get hit when
+// porting, not a theoretical gap. Same object, so `.skip`/`.only`/`.each`
+// etc. all come along for free.
+export const it = test;
+
+// Real rstest also exports chai's `assert` directly (a different style
+// from `expect` — `assert.equal(a, b)`, not `expect(a).toBe(b)`). `chai`
+// is already a bundled dependency (see the README's "why chai" section),
+// so this is a free re-export, not new bundle weight.
+export const assert = chai.assert;
+
 export function beforeAll(fn: HookFn): void {
   current().beforeAllHooks.push(fn);
 }

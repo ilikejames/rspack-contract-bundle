@@ -7,3 +7,8 @@ export interface BuildContractBundleOptions {
 }
 
 export function buildContractBundle(options: BuildContractBundleOptions): Promise<void>;
+
+export function harnessResolveConfig(harnessPath: string): {
+  extensionAlias: Record<string, string[]>;
+  alias: Record<string, string>;
+};
