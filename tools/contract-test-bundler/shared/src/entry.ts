@@ -13,10 +13,15 @@
  * imports it, which registers its suites (describe/test calls run
  * synchronously at import time). We then run everything that got queued.
  *
+ * Each import is wrapped in `registerFile` so `.only` is scoped to the
+ * file that uses it, matching real rstest — confirmed empirically that
+ * one file's `.only` must NOT affect a sibling file's tests. See
+ * `harness.ts`'s `registerFile` for the full story.
+ *
  * `@rstest/core` is aliased to `./harness.ts` by each bundler's config, so
  * the test files themselves stay untouched.
  */
-import { run } from './harness';
+import { registerFile, run } from './harness';
 
 // ⚠️ PORTING THIS PACKAGE: this path is the one thing you must update.
 // `require.context`'s directory argument MUST be a literal string (not a
@@ -37,7 +42,7 @@ const testContext = require.context(
 );
 
 for (const key of testContext.keys()) {
-  testContext(key);
+  registerFile(() => testContext(key));
 }
 
 run().then((code) => {

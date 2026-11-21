@@ -6,7 +6,8 @@
     "fixtures/boundary/entry.supported.ts",
     "fixtures/boundary/entry.unsupported.ts",
     "fixtures/boundary/tests",
-    "fixtures/type-boundary"
+    "fixtures/type-boundary",
+    "fixtures/only-scope"
   ],
   "exclude": ["fixtures/type-boundary/wrong.types.test.ts"]
 }

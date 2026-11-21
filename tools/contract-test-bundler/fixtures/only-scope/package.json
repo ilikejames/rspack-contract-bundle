@@ -1,0 +1,6 @@
+{
+  "name": "@pack-exp/contract-test-bundler-fixture-only-scope",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}

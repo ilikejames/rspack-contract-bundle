@@ -11,7 +11,7 @@
  * here too: the directory argument below must stay a literal.
  */
 import { setEchoUrl } from '@pack-exp/contract';
-import { runAndCollect } from './harness';
+import { registerFile, runAndCollect } from './harness';
 import type { CaseResult } from './harness';
 
 // @ts-ignore - require.context is a webpack/rspack build-time API, not a
@@ -22,8 +22,10 @@ const testContext = require.context(
   /\.contract\.test\.ts$/,
 );
 
+// Each import wrapped in `registerFile` so `.only` scopes to the file
+// that uses it, not the whole bundle — see entry.ts / harness.ts.
 for (const key of testContext.keys()) {
-  testContext(key);
+  registerFile(() => testContext(key));
 }
 
 export type { CaseResult };

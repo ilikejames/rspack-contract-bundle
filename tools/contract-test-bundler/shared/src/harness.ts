@@ -14,9 +14,19 @@
  * `describe`/`test`/hooks/`run` ARE hand-rolled, extended here from the
  * bare minimum to cover: nested `describe`, `beforeAll`/`afterAll`/
  * `beforeEach`/`afterEach` (with standard outer->inner / inner->outer
- * ordering), `test.skip`, `test.todo`, `test.each` (array-of-tuples form
- * only — not the object-row or tagged-template forms), and a per-test /
- * per-hook timeout.
+ * ordering), `test.skip`/`.todo`/`.each`, `describe.skip`/`.only`/`.each`
+ * (array-of-tuples form only — not the object-row or tagged-template
+ * forms), `test.only`, and a per-test / per-hook timeout.
+ *
+ * `.skip`/`.only` semantics match real jest/vitest: a skip-marked suite
+ * runs NONE of its hooks (not "run setup, then skip the tests") — see
+ * `reportAllSkipped`. `.only` is scoped PER FILE (confirmed against the
+ * real runner — see `registerFile`'s comment), not globally across the
+ * whole bundle: the moment ANY `.only` is registered in a given file,
+ * every test in THAT SAME file that isn't itself (or under an ancestor
+ * describe that's) marked `.only` reports as skipped instead of running;
+ * other bundled files are unaffected. Ancestor hooks of a selected test
+ * still run normally — only leaf test-selection is filtered.
  *
  * The timeout exists because of a real gap found while testing the network
  * timeout path: the real rstest enforces a `testTimeout` (default 5000ms)
@@ -39,16 +49,14 @@
  * would mean shipping an actual rstest/vitest-compatible transform, not
  * swapping a few exports. See tests/boundary.test.ts.
  *
- * NOT YET implemented, but unlike the above, no architectural reason it
- * couldn't be: `describe.each`/`.skip`/`.only` ("looping"/filtering whole
- * suites, not just individual tests — `test.each` already works).
- * Calling any of these, or the handful of rarer modifiers neither
- * `describe` nor `test` implement (`.for`, `.concurrent`, `.sequential`,
- * `.runIf`, `.skipIf`, test's `.fails`, describe's `.todo`), throws a
- * clear, named error pointing here rather than crashing with a cryptic
- * `.x is not a function` — found that gap (a missing PROPERTY on an
- * export that DOES exist isn't caught by rspack's build-time export
- * check the way a missing export like `rs.fn` is) the hard way.
+ * The handful of rarer modifiers neither `describe` nor `test` implement
+ * (`.for`, `.concurrent`, `.sequential`, `.runIf`, `.skipIf`, test's
+ * `.fails`, describe's `.todo`) throw a clear, named error pointing here
+ * rather than crashing with a cryptic `.x is not a function` — found that
+ * failure mode (a missing PROPERTY on an export that DOES exist isn't
+ * caught by rspack's build-time export check the way a missing export
+ * like `rs.fn` is) while `describe.each` was still one of these stubs,
+ * before it got implemented for real.
  */
 import * as chai from 'chai';
 import { JestAsymmetricMatchers, JestChaiExpect, JestExtend } from '@vitest/expect';
@@ -123,10 +131,14 @@ interface TestCase {
   fn?: TestFn;
   mode: TestMode;
   timeoutMs?: number;
+  isOnly: boolean;
+  fileId: number;
 }
 
 interface SuiteNode {
   name: string;
+  isOnly: boolean;
+  isSkip: boolean;
   beforeAllHooks: HookFn[];
   afterAllHooks: HookFn[];
   beforeEachHooks: HookFn[];
@@ -134,9 +146,11 @@ interface SuiteNode {
   items: Array<{ kind: 'test'; test: TestCase } | { kind: 'suite'; suite: SuiteNode }>;
 }
 
-function makeSuite(name: string): SuiteNode {
+function makeSuite(name: string, isOnly = false, isSkip = false): SuiteNode {
   return {
     name,
+    isOnly,
+    isSkip,
     beforeAllHooks: [],
     afterAllHooks: [],
     beforeEachHooks: [],
@@ -149,8 +163,44 @@ const root = makeSuite('(root)');
 const suiteStack: SuiteNode[] = [root];
 const current = (): SuiteNode => suiteStack[suiteStack.length - 1]!;
 
-function registerDescribe(name: string, fn: () => void): void {
-  const node = makeSuite(name);
+// `.only` is scoped per FILE in real rstest, not globally across a whole
+// run — confirmed empirically: marking `test.only` in one file does NOT
+// affect an unrelated test in a SIBLING file, but DOES affect every
+// OTHER top-level `describe` within that SAME file (not just the one
+// `.only` happens to be nested in). Since a single bundle here can
+// contain many test files (discovered via `require.context`), a single
+// global flag would incorrectly leak `.only` across all of them — found
+// this the hard way by testing it against the real runner before
+// assuming jest/vitest's usual (non-scoped-sounding) mental model applied
+// unchanged. `registerFile` (called once per discovered file by every
+// entry point that loops over `require.context().keys()`) establishes
+// that boundary; `activeFileId` defaults to 0 for any entry point that
+// only ever imports a single file and never calls it at all (still
+// correct — there's nothing else in the bundle for scope to leak into).
+let nextFileId = 0;
+let activeFileId = 0;
+const fileHasOnly = new Map<number, boolean>([[0, false]]);
+
+export function registerFile(importFile: () => void): void {
+  nextFileId += 1;
+  const fileId = nextFileId;
+  fileHasOnly.set(fileId, false);
+  const previousFileId = activeFileId;
+  activeFileId = fileId;
+  try {
+    importFile();
+  } finally {
+    activeFileId = previousFileId;
+  }
+}
+
+function registerDescribe(
+  name: string,
+  fn: () => void,
+  options: { isOnly?: boolean; isSkip?: boolean } = {},
+): void {
+  const node = makeSuite(name, options.isOnly ?? false, options.isSkip ?? false);
+  if (node.isOnly) fileHasOnly.set(activeFileId, true);
   current().items.push({ kind: 'suite', suite: node });
   suiteStack.push(node);
   try {
@@ -161,19 +211,16 @@ function registerDescribe(name: string, fn: () => void): void {
 }
 
 /**
- * Real rstest's `Describe`/`TestAPI` types have several modifiers this
- * harness doesn't implement yet: describe's `.each`/`.skip`/`.only`/`.for`/
- * `.todo`/`.concurrent`/`.sequential`/`.runIf`/`.skipIf`, and test's
- * `.only`/`.for`/`.fails`/`.concurrent`/`.sequential`/`.runIf`/`.skipIf`.
- * Unlike a genuinely missing EXPORT (`rs.fn`, say), which rspack's static
- * linking catches at build time, a missing PROPERTY on an export that
- * DOES exist (`describe.each`, say) is invisible to that check — it
- * silently builds, then crashes with a cryptic `.x is not a function` the
- * moment it's actually called. Found exactly this way with `describe.each`.
- * These stubs turn that crash into a clear, named error instead — a
- * stopgap, not a fix; `describe.each`/`.skip`/`.only` specifically are
- * real, worth implementing properly (tracked separately), unlike this
- * harness's other deliberate non-goals (mocking, module mocking).
+ * Real rstest's `Describe`/`TestAPI` types have several rarer modifiers
+ * this harness doesn't implement: `.for`, `.concurrent`, `.sequential`,
+ * `.runIf`, `.skipIf`, test's `.fails`, describe's `.todo`. Unlike a
+ * genuinely missing EXPORT (`rs.fn`, say), which rspack's static linking
+ * catches at build time, a missing PROPERTY on an export that DOES exist
+ * (`describe.each`, say — before it was implemented for real) is
+ * invisible to that check — it silently builds, then crashes with a
+ * cryptic `.x is not a function` the moment it's actually called. These
+ * stubs turn that crash into a clear, named error instead for the ones
+ * that stay unimplemented.
  */
 function unsupportedModifier(owner: 'describe' | 'test', modifier: string): () => never {
   return () => {
@@ -186,9 +233,20 @@ function unsupportedModifier(owner: 'describe' | 'test', modifier: string): () =
 }
 
 export const describe = Object.assign((name: string, fn: () => void): void => registerDescribe(name, fn), {
-  skip: unsupportedModifier('describe', 'skip'),
-  only: unsupportedModifier('describe', 'only'),
-  each: unsupportedModifier('describe', 'each'),
+  skip(name: string, fn: () => void): void {
+    registerDescribe(name, fn, { isSkip: true });
+  },
+  only(name: string, fn: () => void): void {
+    registerDescribe(name, fn, { isOnly: true });
+  },
+  each(table: unknown[][]) {
+    return (name: string, fn: (...args: unknown[]) => void): void => {
+      for (const row of table) {
+        const rowArgs = Array.isArray(row) ? row : [row];
+        registerDescribe(formatEachName(name, rowArgs), () => fn(...rowArgs));
+      }
+    };
+  },
   for: unsupportedModifier('describe', 'for'),
   todo: unsupportedModifier('describe', 'todo'),
   concurrent: unsupportedModifier('describe', 'concurrent'),
@@ -197,8 +255,15 @@ export const describe = Object.assign((name: string, fn: () => void): void => re
   skipIf: unsupportedModifier('describe', 'skipIf'),
 });
 
-function registerTest(name: string, fn: TestFn | undefined, mode: TestMode, timeoutMs?: number): void {
-  current().items.push({ kind: 'test', test: { name, fn, mode, timeoutMs } });
+function registerTest(
+  name: string,
+  fn: TestFn | undefined,
+  mode: TestMode,
+  timeoutMs?: number,
+  isOnly = false,
+): void {
+  if (isOnly) fileHasOnly.set(activeFileId, true);
+  current().items.push({ kind: 'test', test: { name, fn, mode, timeoutMs, isOnly, fileId: activeFileId } });
 }
 
 /** Minimal jest/vitest-style %s/%d/%i/%f/%j/%% substitution, positional. */
@@ -245,7 +310,9 @@ export const test = Object.assign(
         }
       };
     },
-    only: unsupportedModifier('test', 'only'),
+    only(name: string, fn: TestFn, timeoutMs?: number): void {
+      registerTest(name, fn, 'run', timeoutMs, true);
+    },
     for: unsupportedModifier('test', 'for'),
     fails: unsupportedModifier('test', 'fails'),
     concurrent: unsupportedModifier('test', 'concurrent'),
@@ -353,15 +420,43 @@ function report(
   ctx.onResult?.(result);
 }
 
+/**
+ * A `describe.skip`-marked suite never runs ANY of its hooks (real
+ * jest/vitest semantics — "skip" means skip entirely, not "run setup
+ * then skip the tests"). Walks the subtree purely to report every test
+ * in it, recursively, without executing a single line of user code.
+ */
+function reportAllSkipped(node: SuiteNode, suitePath: string[], ctx: RunContext): void {
+  const path = node.name === '(root)' ? suitePath : [...suitePath, node.name];
+  const suiteLabel = path.join(' > ') || '(root)';
+  for (const item of node.items) {
+    if (item.kind === 'suite') {
+      reportAllSkipped(item.suite, path, ctx);
+    } else {
+      report(ctx, suiteLabel, item.test.name, item.test.mode === 'todo' ? 'todo' : 'skip', 0);
+    }
+  }
+}
+
 async function runSuite(
   node: SuiteNode,
   suitePath: string[],
   inheritedBeforeEach: HookFn[],
   inheritedAfterEach: HookFn[],
+  inheritedOnly: boolean,
   ctx: RunContext,
 ): Promise<void> {
   const path = node.name === '(root)' ? suitePath : [...suitePath, node.name];
   const suiteLabel = path.join(' > ') || '(root)';
+  const effectiveOnly = inheritedOnly || node.isOnly;
+
+  // `node.isSkip` alone (no inherited flag needed): if an ANCESTOR was
+  // skip-marked, we never reach this call at all — its own runSuite
+  // short-circuited here first and walked this entire subtree itself.
+  if (node.isSkip) {
+    reportAllSkipped(node, suitePath, ctx);
+    return;
+  }
 
   // A throwing beforeAll used to propagate straight out of runSuite,
   // uncaught — crashing the whole bundle (no result line, no summary,
@@ -397,6 +492,7 @@ async function runSuite(
           path,
           [...inheritedBeforeEach, ...node.beforeEachHooks],
           [...node.afterEachHooks, ...inheritedAfterEach],
+          effectiveOnly,
           ctx,
         );
         continue;
@@ -408,7 +504,17 @@ async function runSuite(
         report(ctx, suiteLabel, testCase.name, 'todo', 0);
         continue;
       }
-      if (testCase.mode === 'skip') {
+      // Standard "only" semantics, scoped to THIS test's own file (see
+      // `registerFile`'s comment): once ANY `.only` exists anywhere in
+      // that file, a test runs only if it (or an ancestor describe) is
+      // itself marked `.only` — everything else just reports as skipped,
+      // same as an explicit `test.skip`. Stays a no-op (every file's
+      // `fileHasOnly` entry stays false) for every real test file in
+      // this repo, none of which use `.only` — it only changes behavior
+      // once something actually does.
+      const fileOnly = fileHasOnly.get(testCase.fileId) ?? false;
+      const isSelected = !fileOnly || effectiveOnly || testCase.isOnly;
+      if (testCase.mode === 'skip' || !isSelected) {
         report(ctx, suiteLabel, testCase.name, 'skip', 0);
         continue;
       }
@@ -480,7 +586,7 @@ export async function runAndCollect(
 ): Promise<{ tally: Tally; results: CaseResult[] }> {
   const tally: Tally = { passed: 0, failed: 0, skipped: 0, todo: 0, total: 0 };
   const results: CaseResult[] = [];
-  await runSuite(root, [], [], [], { tally, results, onResult });
+  await runSuite(root, [], [], [], false, { tally, results, onResult });
   return { tally, results };
 }
 

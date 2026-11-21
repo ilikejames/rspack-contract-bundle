@@ -14,10 +14,12 @@ rsbuild/build.mjs      THE bundle: -> rsbuild/dist/contract.bundle.cjs
 sea/build.sh           -> sea/dist/contract-standalone (no Node needed either)
 tests/                 THIS package's own test suite (npm test -> rstest run)
   boundary.test.ts        does the harness still match real rstest's API?
+  only-scope.test.ts      is .only scoped per-file, like real rstest?
   type-boundary.test.ts   do type-level tests still need tsc, not a bundle?
 fixtures/              test INPUT for tests/ above — built/typechecked,
                        not executed directly as part of this package's tests
   boundary/               supported.test.ts / unsupported.test.ts
+  only-scope/             fileA.test.ts / fileB.test.ts + their own entry.ts
   type-boundary/          probe.types.test.ts / wrong.types.test.ts
 ```
 
@@ -28,10 +30,36 @@ unmodified** — only the `@rstest/core` import resolves somewhere else.
 
 `describe`/`test`/hooks/`run` are hand-rolled: nested `describe`,
 `beforeAll`/`afterAll`/`beforeEach`/`afterEach` (correct outer->inner /
-inner->outer ordering), `test.skip`, `test.todo`, `test.each`
-(array-of-tuples form), and a per-test / per-hook timeout
-(`test(name, fn, timeoutMs)`, same 5000ms/10000ms defaults as real
-rstest). Every test and hook races against that timeout via an
+inner->outer ordering), `test.skip`/`.todo`/`.each`,
+`describe.skip`/`.only`/`.each` (array-of-tuples form), `test.only`, and
+a per-test / per-hook timeout (`test(name, fn, timeoutMs)`, same
+5000ms/10000ms defaults as real rstest).
+
+`.skip` matches real semantics exactly: a skip-marked suite runs **none**
+of its hooks, not "run setup then skip the tests" — verified against the
+real runner (a `beforeAll` inside a `describe.skip` must never execute).
+`.only` is scoped **per file**, not globally across the whole bundle —
+confirmed empirically against the real runner before assuming the usual
+jest/vitest mental model carried over unchanged: marking `.only` in one
+file does NOT affect a sibling file bundled alongside it, but DOES affect
+every other top-level `describe` within that SAME file. Since a single
+bundle here can span many discovered test files, a naive single global
+flag would have been wrong — `registerFile` (called once per file by
+every entry point that loops over `require.context().keys()`) establishes
+that boundary. `tests/only-scope.test.ts` proves this through the real
+bundler with two actual files, not just by reading the code.
+
+A handful of rarer modifiers (`describe`'s `.for`/`.todo`/`.concurrent`/
+`.sequential`/`.runIf`/`.skipIf`, `test`'s `.for`/`.fails`/`.concurrent`/
+`.sequential`/`.runIf`/`.skipIf`) aren't implemented — calling any of
+them throws a clear, named error pointing at this README instead of
+crashing with a cryptic `.x is not a function`. That failure mode
+distinction matters: a missing rstest EXPORT (`rs.fn`, say) is caught by
+rspack's build-time static linking; a missing PROPERTY on an export that
+DOES exist (`describe.each`, before it was implemented for real) is
+invisible to that check and only surfaces when actually called.
+
+Every test and hook races against its timeout via an
 `AbortController` — on timeout, the signal is handed to the test as a
 second argument (`async ({ signal }) => ...`), matching real rstest's
 `TestContext.signal`, so a test whose own async work supports
