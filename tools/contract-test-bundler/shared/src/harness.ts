@@ -38,6 +38,17 @@
  * alias that rewrites *call order* inside a file. Supporting it for real
  * would mean shipping an actual rstest/vitest-compatible transform, not
  * swapping a few exports. See tests/boundary.test.ts.
+ *
+ * NOT YET implemented, but unlike the above, no architectural reason it
+ * couldn't be: `describe.each`/`.skip`/`.only` ("looping"/filtering whole
+ * suites, not just individual tests — `test.each` already works).
+ * Calling any of these, or the handful of rarer modifiers neither
+ * `describe` nor `test` implement (`.for`, `.concurrent`, `.sequential`,
+ * `.runIf`, `.skipIf`, test's `.fails`, describe's `.todo`), throws a
+ * clear, named error pointing here rather than crashing with a cryptic
+ * `.x is not a function` — found that gap (a missing PROPERTY on an
+ * export that DOES exist isn't caught by rspack's build-time export
+ * check the way a missing export like `rs.fn` is) the hard way.
  */
 import * as chai from 'chai';
 import { JestAsymmetricMatchers, JestChaiExpect, JestExtend } from '@vitest/expect';
@@ -138,7 +149,7 @@ const root = makeSuite('(root)');
 const suiteStack: SuiteNode[] = [root];
 const current = (): SuiteNode => suiteStack[suiteStack.length - 1]!;
 
-export function describe(name: string, fn: () => void): void {
+function registerDescribe(name: string, fn: () => void): void {
   const node = makeSuite(name);
   current().items.push({ kind: 'suite', suite: node });
   suiteStack.push(node);
@@ -149,12 +160,44 @@ export function describe(name: string, fn: () => void): void {
   }
 }
 
-function registerTest(
-  name: string,
-  fn: TestFn | undefined,
-  mode: TestMode,
-  timeoutMs?: number,
-): void {
+/**
+ * Real rstest's `Describe`/`TestAPI` types have several modifiers this
+ * harness doesn't implement yet: describe's `.each`/`.skip`/`.only`/`.for`/
+ * `.todo`/`.concurrent`/`.sequential`/`.runIf`/`.skipIf`, and test's
+ * `.only`/`.for`/`.fails`/`.concurrent`/`.sequential`/`.runIf`/`.skipIf`.
+ * Unlike a genuinely missing EXPORT (`rs.fn`, say), which rspack's static
+ * linking catches at build time, a missing PROPERTY on an export that
+ * DOES exist (`describe.each`, say) is invisible to that check — it
+ * silently builds, then crashes with a cryptic `.x is not a function` the
+ * moment it's actually called. Found exactly this way with `describe.each`.
+ * These stubs turn that crash into a clear, named error instead — a
+ * stopgap, not a fix; `describe.each`/`.skip`/`.only` specifically are
+ * real, worth implementing properly (tracked separately), unlike this
+ * harness's other deliberate non-goals (mocking, module mocking).
+ */
+function unsupportedModifier(owner: 'describe' | 'test', modifier: string): () => never {
+  return () => {
+    throw new Error(
+      `${owner}.${modifier}() is not supported by this bundler's harness ` +
+        `(shared/src/harness.ts) — see tools/contract-test-bundler/README.md ` +
+        `for what is.`,
+    );
+  };
+}
+
+export const describe = Object.assign((name: string, fn: () => void): void => registerDescribe(name, fn), {
+  skip: unsupportedModifier('describe', 'skip'),
+  only: unsupportedModifier('describe', 'only'),
+  each: unsupportedModifier('describe', 'each'),
+  for: unsupportedModifier('describe', 'for'),
+  todo: unsupportedModifier('describe', 'todo'),
+  concurrent: unsupportedModifier('describe', 'concurrent'),
+  sequential: unsupportedModifier('describe', 'sequential'),
+  runIf: unsupportedModifier('describe', 'runIf'),
+  skipIf: unsupportedModifier('describe', 'skipIf'),
+});
+
+function registerTest(name: string, fn: TestFn | undefined, mode: TestMode, timeoutMs?: number): void {
   current().items.push({ kind: 'test', test: { name, fn, mode, timeoutMs } });
 }
 
@@ -202,6 +245,13 @@ export const test = Object.assign(
         }
       };
     },
+    only: unsupportedModifier('test', 'only'),
+    for: unsupportedModifier('test', 'for'),
+    fails: unsupportedModifier('test', 'fails'),
+    concurrent: unsupportedModifier('test', 'concurrent'),
+    sequential: unsupportedModifier('test', 'sequential'),
+    runIf: unsupportedModifier('test', 'runIf'),
+    skipIf: unsupportedModifier('test', 'skipIf'),
   },
 );
 
