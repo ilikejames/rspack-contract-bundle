@@ -360,6 +360,29 @@ const statusMarks: Record<CaseStatus, string> = {
   todo: '~',
 };
 
+// Matches <ContractResults />'s own pass/fail/skip/todo palette (see
+// components/src/index.tsx) so a run looks the same whether it's read in
+// a terminal or in the browser UI. Only colors the Node/CLI bundle's
+// console output: `process` doesn't exist in a browser at all, and even
+// where it does, piping output somewhere non-interactive (a log file, a
+// test's own `execFileSync` capture, CI with NO_COLOR set) should get
+// plain text, not raw escape codes mixed into it.
+const ansiColors: Record<CaseStatus, string> = {
+  pass: '\x1b[32m', // green
+  fail: '\x1b[31m', // red
+  skip: '\x1b[90m', // gray
+  todo: '\x1b[90m', // gray
+};
+const ANSI_RESET = '\x1b[0m';
+
+const supportsColor =
+  typeof process !== 'undefined' && process.stdout?.isTTY === true && !process.env?.NO_COLOR;
+
+function colorMark(status: CaseStatus): string {
+  const mark = statusMarks[status];
+  return supportsColor ? `${ansiColors[status]}${mark}${ANSI_RESET}` : mark;
+}
+
 interface Tally {
   passed: number;
   failed: number;
@@ -416,7 +439,7 @@ function report(
   durationMs: number,
   error?: Error,
 ): void {
-  console.log(`  ${statusMarks[status]} ${suite} > ${name} (${durationMs}ms)`);
+  console.log(`  ${colorMark(status)} ${suite} > ${name} (${durationMs}ms)`);
   if (status === 'fail') {
     console.log(`      ${error?.message}`);
     ctx.tally.failed += 1;

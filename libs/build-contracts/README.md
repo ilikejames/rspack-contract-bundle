@@ -61,6 +61,43 @@ a browser has no `process`, so there, a consuming app's own UI calling
 this package nor any real contract test needs to know in advance what
 keys a given app's tests will want.
 
+## Passing environment variables into a run
+
+Same `getTestEnv`/`setTestEnv` store, two different ways in depending on
+where the test is actually running:
+
+**Node / CLI bundle (bash)** — seeded from `process.env` at module load,
+so a plain env var works, no code needed:
+
+```sh
+ECHO_URL="ws://staging.example/echo" node contract.bundle.cjs
+```
+
+Verified: every result's error message echoes that exact URL back, not
+the default — this genuinely redirects the run, it isn't read once and
+ignored.
+
+**Browser / web run** — there's no `process` in a browser, so a
+consuming app's own UI calls `setTestEnv({ KEY: value, ... })` directly
+before (or as part of) kicking off a run. `apps/app-1/src/entry.browser.ts`
+does exactly this in its exported `runContractTests(url)`:
+
+```ts
+import { setTestEnv } from '@pack-exp/build-contracts';
+
+if (url) setTestEnv({ ECHO_URL: url });
+```
+
+— called from `App.tsx`'s "Run" button handler with whatever's currently
+in the URL textbox. Verified end-to-end by
+`apps/app-1/e2e/url-override.spec.ts`: types an unreachable URL into the
+textbox, runs, and asserts every result mentions THAT url specifically.
+
+Either way, the test files themselves never change: they just call
+`getTestEnv('ECHO_URL')` (see `apps/app-1/src/contracts/reportEcho.ts`)
+and don't know or care whether that value came from a shell env var or a
+browser textbox.
+
 ## `shared/src/harness.ts` — the `@rstest/core` replacement
 
 Aliased in at bundle time so **the real test files are bundled
