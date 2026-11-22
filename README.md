@@ -65,6 +65,20 @@ npm run build:contracts -w @pack-exp/app-1   # -> apps/app-1/dist/contract.bundl
 node apps/app-1/dist/contract.bundle.cjs
 ```
 
+`contract.bundle.cjs` lands in `apps/app-1/dist/`, right next to
+`index.html` — so whatever is already serving the app (`npm run dev` or
+`npm run preview -w @pack-exp/app-1`, both on port 3300) serves the
+bundle too, as a plain static file. No separate hosting step, and no
+need to save it to disk first either: the bundle is fully self-contained
+(no relative `require`s), so `node` can run it straight from stdin:
+
+```sh
+curl -s http://localhost:3300/contract.bundle.cjs | node
+```
+
+Same trick works against wherever `dist/` ends up actually deployed —
+swap in that URL in place of `localhost:3300`.
+
 ## Tooling
 
 npm workspaces · TypeScript · rstest (rspack) · rsbuild · React · turbo
