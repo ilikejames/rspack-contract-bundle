@@ -8,8 +8,7 @@
     "node": ">=22"
   },
   "workspaces": [
-    "packages/*",
-    "tools/*",
+    "libs/*",
     "apps/*"
   ],
   "scripts": {

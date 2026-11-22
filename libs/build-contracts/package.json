@@ -1,0 +1,37 @@
+{
+  "name": "@pack-exp/build-contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./shared/src/index.ts",
+    "./components": "./components/src/index.tsx",
+    "./build": "./shared/buildContractBundle.mjs"
+  },
+  "scripts": {
+    "build": "node rsbuild/build.mjs",
+    "build:sea": "bash sea/build.sh",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning rstest run"
+  },
+  "peerDependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "dependencies": {
+    "@vitest/expect": "^5.1.1",
+    "chai": "^6.3.0"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^2.3.3",
+    "@rspack/core": "^2.3.3",
+    "@rstest/core": "^0.12.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "expect-type": "^1.4.0",
+    "postject": "^1.0.0-alpha.6",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^5.9.3"
+  }
+}

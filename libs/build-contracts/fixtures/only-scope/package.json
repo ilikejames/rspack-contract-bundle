@@ -1,0 +1,6 @@
+{
+  "name": "@pack-exp/build-contracts-fixture-only-scope",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module"
+}
